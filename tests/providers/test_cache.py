@@ -42,3 +42,13 @@ def test_cache_creates_parent_directory(tmp_path):
     cache = Cache(nested / "test.db")
     cache.set("k", 1, ttl_seconds=60)
     assert cache.get("k") == 1
+
+
+def test_cache_get_returns_none_on_unpickle_failure(temp_cache_dir, caplog):
+    cache = Cache(temp_cache_dir / "test.db")
+    cache.set("k", "valid", ttl_seconds=60)
+    # Corrupt the stored blob so pickle.loads fails
+    cache._conn.execute("UPDATE cache SET value = ? WHERE key = ?", (b"not-pickle", "k"))
+    with caplog.at_level("WARNING"):
+        assert cache.get("k") is None
+    assert any("Cache get failed" in r.message for r in caplog.records)

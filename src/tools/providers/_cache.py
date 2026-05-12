@@ -5,11 +5,15 @@ Single-table design. Values are pickled. ttl_seconds=0 means never expire.
 
 from __future__ import annotations
 
+import logging
 import pickle
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 _SCHEMA = """
@@ -38,24 +42,31 @@ class Cache:
         self._conn.executescript(_SCHEMA)
 
     def get(self, key: str) -> Any | None:
-        row = self._conn.execute(
-            "SELECT value, fetched_at, ttl_seconds FROM cache WHERE key = ?",
-            (key,),
-        ).fetchone()
-        if row is None:
+        try:
+            row = self._conn.execute(
+                "SELECT value, fetched_at, ttl_seconds FROM cache WHERE key = ?",
+                (key,),
+            ).fetchone()
+            if row is None:
+                return None
+            value_blob, fetched_at, ttl_seconds = row
+            if ttl_seconds > 0 and time.time() - fetched_at > ttl_seconds:
+                return None
+            return pickle.loads(value_blob)
+        except Exception as exc:
+            logger.warning("Cache get failed for key=%s: %s", key, exc)
             return None
-        value_blob, fetched_at, ttl_seconds = row
-        if ttl_seconds > 0 and time.time() - fetched_at > ttl_seconds:
-            return None
-        return pickle.loads(value_blob)
 
     def set(self, key: str, value: Any, ttl_seconds: int) -> None:
-        blob = pickle.dumps(value)
-        self._conn.execute(
-            "INSERT OR REPLACE INTO cache(key, value, fetched_at, ttl_seconds) "
-            "VALUES (?, ?, ?, ?)",
-            (key, blob, int(time.time()), ttl_seconds),
-        )
+        try:
+            blob = pickle.dumps(value)
+            self._conn.execute(
+                "INSERT OR REPLACE INTO cache(key, value, fetched_at, ttl_seconds) "
+                "VALUES (?, ?, ?, ?)",
+                (key, blob, int(time.time()), ttl_seconds),
+            )
+        except Exception as exc:
+            logger.warning("Cache set failed for key=%s: %s", key, exc)
 
     def close(self) -> None:
         self._conn.close()
