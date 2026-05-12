@@ -61,3 +61,27 @@ def compose_ttm(quarters: list[dict]) -> dict | None:
         out[field] = latest.get(field)
 
     return out
+
+
+def filter_pit(
+    quarters: list[dict],
+    filing_dates: dict[str, str],
+    *,
+    decision_date: str,
+) -> list[dict]:
+    """Keep only quarters whose filing_date <= decision_date.
+
+    Drops periods missing from filing_dates (per spec: never assume future).
+    """
+    kept: list[dict] = []
+    for q in quarters:
+        rp = q.get("report_period")
+        if not rp:
+            continue
+        fd = filing_dates.get(rp)
+        if fd is None:
+            continue
+        if fd > decision_date:
+            continue
+        kept.append(q)
+    return kept
