@@ -74,3 +74,71 @@ def get_filing_dates(cik10: str) -> dict[str, str]:
         if rd not in out or fd < out[rd]:
             out[rd] = fd
     return out
+
+
+def _txt(root, path: str) -> str | None:
+    node = root.find(path)
+    if node is None or node.text is None:
+        return None
+    return node.text.strip() or None
+
+
+def _flt(s: str | None) -> float | None:
+    if s is None:
+        return None
+    try:
+        return float(s.replace(",", ""))
+    except ValueError:
+        return None
+
+
+def parse_form4_xml(xml_text: str, ticker: str, filing_date: str) -> list:
+    """Parse a Form 4 ownershipDocument into InsiderTrade rows.
+
+    Returns [] on malformed XML — never raises.
+    """
+    from xml.etree import ElementTree as ET
+
+    from src.data.models import InsiderTrade
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        logger.warning("Form 4 XML parse failed for %s/%s: %s", ticker, filing_date, exc)
+        return []
+
+    issuer = _txt(root, ".//issuer/issuerName")
+    owner_name = _txt(root, ".//reportingOwner/reportingOwnerId/rptOwnerName")
+    is_director = _txt(root, ".//reportingOwner/reportingOwnerRelationship/isDirector") == "1"
+    is_officer = _txt(root, ".//reportingOwner/reportingOwnerRelationship/isOfficer") == "1"
+    title = _txt(root, ".//reportingOwner/reportingOwnerRelationship/officerTitle")
+
+    trades: list = []
+    for tx in root.findall(".//nonDerivativeTable/nonDerivativeTransaction"):
+        tx_date = _txt(tx, ".//transactionDate/value")
+        code = _txt(tx, ".//transactionCoding/transactionCode")
+        shares = _flt(_txt(tx, ".//transactionShares/value"))
+        price = _flt(_txt(tx, ".//transactionPricePerShare/value"))
+        owned_after = _flt(_txt(tx, ".//sharesOwnedFollowingTransaction/value"))
+        sec_title = _txt(tx, ".//securityTitle/value")
+
+        value = (shares * price) if (shares is not None and price is not None) else None
+
+        trades.append(
+            InsiderTrade(
+                ticker=ticker,
+                issuer=issuer,
+                name=owner_name,
+                title=title,
+                is_board_director=is_director or is_officer,  # FD's flag means "insider"
+                transaction_date=tx_date,
+                transaction_shares=shares,
+                transaction_price_per_share=price,
+                transaction_value=value,
+                shares_owned_before_transaction=None,
+                shares_owned_after_transaction=owned_after,
+                security_title=sec_title,
+                filing_date=filing_date,
+            )
+        )
+    return trades
