@@ -202,3 +202,50 @@ def filter_pit(
             continue
         kept.append(q)
     return kept
+
+
+def _fetch_prices_window(ticker: str, end_date: str):
+    """Fetch up to 7 days of prices ending at end_date for last-close lookup."""
+    from datetime import datetime, timedelta
+    from src.tools.providers import yfinance_source
+
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    start_dt = end_dt - timedelta(days=7)
+    return yfinance_source.fetch_prices(
+        ticker, start_dt.strftime("%Y-%m-%d"), end_date,
+    )
+
+
+def _fetch_pit_quarters(ticker: str, end_date: str) -> list[dict]:
+    """Fetch quarterly statements + apply PIT filter via SEC filing dates."""
+    from src.tools.providers import sec_edgar, yfinance_source
+
+    quarters = yfinance_source.fetch_quarterly_statements(ticker)
+    if not quarters:
+        return []
+    cik = sec_edgar.resolve_cik(ticker)
+    if cik is None:
+        logger.warning(
+            "SEC CIK lookup failed for %s — dropping all quarters per strict PIT", ticker,
+        )
+        return []
+    filing_dates = sec_edgar.get_filing_dates(cik)
+    if not filing_dates:
+        return []
+    return filter_pit(quarters, filing_dates, decision_date=end_date)
+
+
+def compute_market_cap_pit(ticker: str, end_date: str) -> float | None:
+    """Return close-price × shares-outstanding as of end_date, or None."""
+    prices = _fetch_prices_window(ticker, end_date)
+    if not prices:
+        return None
+    last_close = prices[-1].close
+
+    quarters = _fetch_pit_quarters(ticker, end_date)
+    if not quarters:
+        return None
+    shares = quarters[0].get("outstanding_shares")
+    if shares is None:
+        return None
+    return last_close * shares
