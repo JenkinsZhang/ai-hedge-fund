@@ -138,3 +138,39 @@ def fetch_quarterly_statements(ticker: str) -> list[dict]:
                     break
         out.append(record)
     return out
+
+
+def fetch_news_titles(ticker: str, start_date: str, end_date: str, limit: int = 50):
+    """Best-effort: pull recent news titles via yfinance (no sentiment).
+
+    Returns list of CompanyNews with sentiment=None. Caller annotates downstream.
+    """
+    from src.data.models import CompanyNews
+
+    try:
+        items = yf.Ticker(ticker).news or []
+    except Exception as exc:
+        logger.warning("yfinance news failed for %s: %s", ticker, exc)
+        return []
+
+    out: list[CompanyNews] = []
+    for it in items[:limit]:
+        title = it.get("title") or it.get("content", {}).get("title", "")
+        link = it.get("link") or it.get("content", {}).get("canonicalUrl", {}).get("url", "")
+        publisher = it.get("publisher") or it.get("content", {}).get("provider", {}).get("displayName", "yfinance")
+        ts = it.get("providerPublishTime")
+        date = ""
+        if isinstance(ts, (int, float)):
+            from datetime import datetime, timezone
+            date = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        if not title:
+            continue
+        if start_date and date and date < start_date:
+            continue
+        if end_date and date and date > end_date:
+            continue
+        out.append(CompanyNews(
+            ticker=ticker, title=title, author=None, source=publisher,
+            date=date, url=link, sentiment=None,
+        ))
+    return out

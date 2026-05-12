@@ -142,3 +142,42 @@ def parse_form4_xml(xml_text: str, ticker: str, filing_date: str) -> list:
             )
         )
     return trades
+
+
+def _fetch_form4_xml_paths(cik10: str, start_date: str, end_date: str) -> list[tuple[str, str]]:
+    """Return list of (filing_date, xml_url) for Form 4 filings in window."""
+    sub = _fetch_submissions(cik10)
+    recent = sub.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    fdates = recent.get("filingDate", [])
+    accessions = recent.get("accessionNumber", [])
+    primary_docs = recent.get("primaryDocument", [])
+
+    out: list[tuple[str, str]] = []
+    for form, fd, acc, doc in zip(forms, fdates, accessions, primary_docs):
+        if form not in ("4", "4/A"):
+            continue
+        if not (start_date <= fd <= end_date):
+            continue
+        acc_clean = acc.replace("-", "")
+        url = f"{_BASE_FILES}/Archives/edgar/data/{int(cik10)}/{acc_clean}/{doc}"
+        out.append((fd, url))
+    return out
+
+
+def fetch_form4_trades(ticker: str, start_date: str, end_date: str, limit: int = 1000):
+    """Resolve CIK, list Form 4 filings in window, parse each."""
+    cik = resolve_cik(ticker)
+    if cik is None:
+        logger.warning("SEC CIK lookup failed for %s", ticker)
+        return []
+    paths = _fetch_form4_xml_paths(cik, start_date, end_date)
+    s = _session()
+    out = []
+    for fd, url in paths[:limit]:
+        time.sleep(_RATE_LIMIT_SLEEP)
+        r = get_with_retry(s, url)
+        if r.status_code != 200:
+            continue
+        out.extend(parse_form4_xml(r.text, ticker=ticker, filing_date=fd))
+    return out
