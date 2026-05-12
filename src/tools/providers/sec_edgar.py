@@ -160,7 +160,15 @@ def _fetch_form4_xml_paths(cik10: str, start_date: str, end_date: str) -> list[t
         if not (start_date <= fd <= end_date):
             continue
         acc_clean = acc.replace("-", "")
-        url = f"{_BASE_FILES}/Archives/edgar/data/{int(cik10)}/{acc_clean}/{doc}"
+        # SEC's primaryDocument field for Form 4 sometimes points to an XSL-styled
+        # view (e.g., "xslF345X05/wf-form4_xxx.xml") which returns HTML. Strip the
+        # xsl* directory prefix so we hit the raw XML at the accession root.
+        doc_clean = doc
+        if "/" in doc_clean:
+            parts = doc_clean.split("/")
+            if parts[0].startswith("xsl"):
+                doc_clean = parts[-1]
+        url = f"{_BASE_FILES}/Archives/edgar/data/{int(cik10)}/{acc_clean}/{doc_clean}"
         out.append((fd, url))
     return out
 

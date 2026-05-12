@@ -7,6 +7,8 @@ Forbidden: Ticker.info["marketCap"] and Ticker.info["sharesOutstanding"]
 from __future__ import annotations
 
 import logging
+import threading
+import time
 
 import yfinance as yf
 
@@ -14,12 +16,51 @@ from src.data.models import Price
 
 logger = logging.getLogger(__name__)
 
+_YF_LAST_CALL_TS = 0.0
+_YF_LOCK = threading.Lock()
+_YF_MIN_INTERVAL = 0.6  # seconds between yfinance calls
+_YF_MAX_RETRIES = 3
+_YF_RETRY_BACKOFF = 5  # base seconds for 429 backoff
+
+
+def _yf_throttle():
+    """Block until at least _YF_MIN_INTERVAL has passed since the last call."""
+    global _YF_LAST_CALL_TS
+    with _YF_LOCK:
+        now = time.time()
+        wait = _YF_MIN_INTERVAL - (now - _YF_LAST_CALL_TS)
+        if wait > 0:
+            time.sleep(wait)
+        _YF_LAST_CALL_TS = time.time()
+
+
+def _yf_call_with_retry(callable_):
+    """Run a yfinance callable, retrying on 'Too Many Requests' errors."""
+    for attempt in range(_YF_MAX_RETRIES + 1):
+        _yf_throttle()
+        try:
+            return callable_()
+        except Exception as exc:
+            msg = str(exc).lower()
+            is_rate_limited = "too many requests" in msg or "rate limit" in msg or "429" in msg
+            if is_rate_limited and attempt < _YF_MAX_RETRIES:
+                delay = _YF_RETRY_BACKOFF * (attempt + 1)
+                logger.warning(
+                    "yfinance rate-limited; retrying in %ds (attempt %d/%d)",
+                    delay, attempt + 1, _YF_MAX_RETRIES,
+                )
+                time.sleep(delay)
+                continue
+            raise
+
 
 def fetch_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
     """OHLCV bars between start_date and end_date (inclusive)."""
     try:
-        df = yf.Ticker(ticker).history(
-            start=start_date, end=end_date, auto_adjust=False
+        df = _yf_call_with_retry(
+            lambda: yf.Ticker(ticker).history(
+                start=start_date, end=end_date, auto_adjust=False
+            )
         )
     except Exception as exc:
         logger.warning("yfinance.history failed for %s: %s", ticker, exc)
@@ -100,10 +141,10 @@ def fetch_quarterly_statements(ticker: str) -> list[dict]:
     not found in this period).
     """
     try:
-        t = yf.Ticker(ticker)
-        income = t.quarterly_income_stmt
-        balance = t.quarterly_balance_sheet
-        cashflow = t.quarterly_cashflow
+        def _fetch():
+            t = yf.Ticker(ticker)
+            return t.quarterly_income_stmt, t.quarterly_balance_sheet, t.quarterly_cashflow
+        income, balance, cashflow = _yf_call_with_retry(_fetch)
     except Exception as exc:
         logger.warning("yfinance quarterly statements failed for %s: %s", ticker, exc)
         return []
@@ -148,7 +189,7 @@ def fetch_news_titles(ticker: str, start_date: str, end_date: str, limit: int = 
     from src.data.models import CompanyNews
 
     try:
-        items = yf.Ticker(ticker).news or []
+        items = _yf_call_with_retry(lambda: yf.Ticker(ticker).news) or []
     except Exception as exc:
         logger.warning("yfinance news failed for %s: %s", ticker, exc)
         return []
