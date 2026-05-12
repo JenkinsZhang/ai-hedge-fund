@@ -25,6 +25,11 @@
     "provider": "Anthropic"
   },
   {
+    "display_name": "Claude Opus 4.7 (Bedrock)",
+    "model_name": "jp.anthropic.claude-opus-4-7",
+    "provider": "Bedrock"
+  },
+  {
     "display_name": "Gemini 3.1 Pro",
     "model_name": "gemini-3.1-pro-preview",
     "provider": "Google"
