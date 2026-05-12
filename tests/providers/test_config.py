@@ -1,4 +1,3 @@
-import os
 import pytest
 
 from src.tools.providers import _config
