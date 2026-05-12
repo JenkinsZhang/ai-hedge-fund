@@ -50,10 +50,16 @@ def call_llm(
 
     # For non-JSON support models, we can use structured output
     if not (model_info and not model_info.has_json_mode()):
-        llm = llm.with_structured_output(
-            pydantic_model,
-            method="json_mode",
-        )
+        # Bedrock Converse exposes structured output through tool-use rather
+        # than an OpenAI-style "json_mode" string, so omit the method kwarg
+        # there and let langchain-aws pick the right path.
+        if model_info and model_info.is_bedrock():
+            llm = llm.with_structured_output(pydantic_model)
+        else:
+            llm = llm.with_structured_output(
+                pydantic_model,
+                method="json_mode",
+            )
 
     # Call the LLM with retries
     for attempt in range(max_retries):

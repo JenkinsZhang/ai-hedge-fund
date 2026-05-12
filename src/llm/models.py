@@ -8,6 +8,13 @@ from langchain_xai import ChatXAI
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_gigachat import GigaChat
 from langchain_ollama import ChatOllama
+
+# Bedrock is optional — only imported when actually selected, to avoid a hard
+# dependency for users who don't install langchain-aws.
+try:
+    from langchain_aws import ChatBedrockConverse  # type: ignore
+except ImportError:
+    ChatBedrockConverse = None  # type: ignore
 from enum import Enum
 from pydantic import BaseModel
 from typing import Tuple, List
@@ -19,6 +26,7 @@ class ModelProvider(str, Enum):
 
     ALIBABA = "Alibaba"
     ANTHROPIC = "Anthropic"
+    BEDROCK = "Bedrock"
     DEEPSEEK = "DeepSeek"
     GOOGLE = "Google"
     GROQ = "Groq"
@@ -75,6 +83,10 @@ class LLMModel(BaseModel):
     def is_ollama(self) -> bool:
         """Check if the model is an Ollama model"""
         return self.provider == ModelProvider.OLLAMA
+
+    def is_bedrock(self) -> bool:
+        """Check if the model is served via Amazon Bedrock"""
+        return self.provider == ModelProvider.BEDROCK
 
 
 # Load models from JSON file
@@ -174,6 +186,41 @@ def get_model(model_name: str, model_provider: ModelProvider, api_keys: dict = N
             print(f"API Key Error: Please make sure GOOGLE_API_KEY is set in your .env file or provided via API keys.")
             raise ValueError("Google API key not found.  Please make sure GOOGLE_API_KEY is set in your .env file or provided via API keys.")
         return ChatGoogleGenerativeAI(model=model_name, api_key=api_key)
+    elif model_provider == ModelProvider.BEDROCK:
+        if ChatBedrockConverse is None:
+            raise ImportError(
+                "langchain-aws is not installed. Run `poetry install` (or "
+                "`pip install langchain-aws`) to use the Bedrock provider."
+            )
+        # Bedrock authenticates via the standard boto3 chain. The bearer-token
+        # mode is enabled simply by setting AWS_BEARER_TOKEN_BEDROCK in the
+        # environment — boto3 picks it up automatically. We accept the token
+        # either from the .env-loaded process env or from the request-level
+        # api_keys dict (UI-supplied), and surface it back into os.environ so
+        # the underlying boto3 client sees it.
+        bearer_token = (
+            (api_keys or {}).get("AWS_BEARER_TOKEN_BEDROCK")
+            or os.getenv("AWS_BEARER_TOKEN_BEDROCK")
+        )
+        if bearer_token:
+            os.environ["AWS_BEARER_TOKEN_BEDROCK"] = bearer_token
+        elif not (os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("AWS_PROFILE")):
+            print(
+                "API Key Error: Set AWS_BEARER_TOKEN_BEDROCK in your .env "
+                "(or supply it via api_keys), or configure standard AWS "
+                "credentials, to use the Bedrock provider."
+            )
+            raise ValueError(
+                "AWS Bedrock credentials not found. Please set "
+                "AWS_BEARER_TOKEN_BEDROCK in your .env file."
+            )
+        region_name = (
+            (api_keys or {}).get("AWS_REGION")
+            or os.getenv("AWS_REGION")
+            or os.getenv("AWS_DEFAULT_REGION")
+            or "ap-northeast-1"
+        )
+        return ChatBedrockConverse(model=model_name, region_name=region_name)
     elif model_provider == ModelProvider.OLLAMA:
         # For Ollama, we use a base URL instead of an API key
         # Check if OLLAMA_HOST is set (for Docker on macOS)
