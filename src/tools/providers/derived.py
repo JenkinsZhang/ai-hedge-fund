@@ -188,8 +188,14 @@ def filter_pit(
 ) -> list[dict]:
     """Keep only quarters whose filing_date <= decision_date.
 
-    Drops periods missing from filing_dates (per spec: never assume future).
+    For periods missing from filing_dates (foreign issuers that file 20-F
+    semi-annually but whose quarterly numbers reach yfinance via other
+    disclosures), use a conservative 60-day-after-report-period estimate.
+    This matches typical earnings-release cadence and avoids dropping
+    legitimate ADR data wholesale.
     """
+    from datetime import datetime, timedelta
+
     kept: list[dict] = []
     for q in quarters:
         rp = q.get("report_period")
@@ -197,7 +203,11 @@ def filter_pit(
             continue
         fd = filing_dates.get(rp)
         if fd is None:
-            continue
+            try:
+                rp_dt = datetime.strptime(rp, "%Y-%m-%d")
+                fd = (rp_dt + timedelta(days=60)).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
         if fd > decision_date:
             continue
         kept.append(q)

@@ -9,6 +9,16 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+_WARNED_KEYS: set[str] = set()
+
+
+def _warn_once(key: str, message: str) -> None:
+    """Log a warning the first time `key` is seen in this process."""
+    if key in _WARNED_KEYS:
+        return
+    _WARNED_KEYS.add(key)
+    logger.warning(message)
+
 
 @dataclass(frozen=True)
 class Config:
@@ -55,14 +65,16 @@ def load_config() -> Config:
                 "rejects anonymous requests."
             )
         if not av_key:
-            logger.warning(
+            _warn_once(
+                "av_missing",
                 "ALPHAVANTAGE_API_KEY not set — news will fall back to "
-                "yfinance + Bedrock; insider trades will rely on SEC only."
+                "yfinance + Bedrock; insider trades will rely on SEC only.",
             )
         if not bedrock_token:
-            logger.warning(
+            _warn_once(
+                "bedrock_missing",
                 "AWS_BEARER_TOKEN_BEDROCK not set — sentiment fallback "
-                "will be unavailable."
+                "will be unavailable.",
             )
 
     return Config(
