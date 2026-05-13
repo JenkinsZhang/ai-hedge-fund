@@ -33,3 +33,25 @@ def test_config_cache_dir_override(monkeypatch, tmp_path):
     monkeypatch.setenv("PROVIDER_CACHE_DIR", str(tmp_path))
     cfg = _config.load_config()
     assert cfg.cache_dir == tmp_path
+
+
+def test_config_proxy_explicit_yfinance_proxy_wins(monkeypatch):
+    monkeypatch.setenv("YFINANCE_PROXY", "http://127.0.0.1:10808")
+    monkeypatch.setenv("HTTPS_PROXY", "http://other:8080")
+    cfg = _config.load_config()
+    assert cfg.proxy == "http://127.0.0.1:10808"
+
+
+def test_config_proxy_falls_back_to_https_proxy(monkeypatch):
+    monkeypatch.delenv("YFINANCE_PROXY", raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://corp:8080")
+    cfg = _config.load_config()
+    assert cfg.proxy == "http://corp:8080"
+
+
+def test_config_proxy_none_when_unset(monkeypatch):
+    monkeypatch.delenv("YFINANCE_PROXY", raising=False)
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+    cfg = _config.load_config()
+    assert cfg.proxy is None

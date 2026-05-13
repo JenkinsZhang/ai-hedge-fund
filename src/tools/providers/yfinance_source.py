@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 
+import requests
 import yfinance as yf
 
 from src.data.models import Price
@@ -21,6 +22,30 @@ _YF_LOCK = threading.Lock()
 _YF_MIN_INTERVAL = 0.6  # seconds between yfinance calls
 _YF_MAX_RETRIES = 3
 _YF_RETRY_BACKOFF = 5  # base seconds for 429 backoff
+
+# Cached requests Session pre-configured with proxy (if any) for yfinance use.
+_YF_SESSION: requests.Session | None = None
+
+
+def _yf_session() -> requests.Session:
+    """Build (and cache) a requests Session with proxy from Config.
+
+    yfinance 0.2.x accepts `session=` on Ticker(); requests will use the
+    session's proxies dict for every HTTP call. Falls back to direct connect
+    if no proxy is configured.
+    """
+    global _YF_SESSION
+    if _YF_SESSION is not None:
+        return _YF_SESSION
+
+    from src.tools.providers._config import load_config
+    s = requests.Session()
+    proxy = load_config().proxy
+    if proxy:
+        s.proxies = {"http": proxy, "https": proxy}
+        logger.info("yfinance routing through proxy: %s", proxy)
+    _YF_SESSION = s
+    return s
 
 
 def _yf_throttle():
@@ -58,7 +83,7 @@ def fetch_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
     """OHLCV bars between start_date and end_date (inclusive)."""
     try:
         df = _yf_call_with_retry(
-            lambda: yf.Ticker(ticker).history(
+            lambda: yf.Ticker(ticker, session=_yf_session()).history(
                 start=start_date, end=end_date, auto_adjust=False
             )
         )
@@ -142,7 +167,7 @@ def fetch_quarterly_statements(ticker: str) -> list[dict]:
     """
     try:
         def _fetch():
-            t = yf.Ticker(ticker)
+            t = yf.Ticker(ticker, session=_yf_session())
             return t.quarterly_income_stmt, t.quarterly_balance_sheet, t.quarterly_cashflow
         income, balance, cashflow = _yf_call_with_retry(_fetch)
     except Exception as exc:
@@ -189,7 +214,9 @@ def fetch_news_titles(ticker: str, start_date: str, end_date: str, limit: int = 
     from src.data.models import CompanyNews
 
     try:
-        items = _yf_call_with_retry(lambda: yf.Ticker(ticker).news) or []
+        items = _yf_call_with_retry(
+            lambda: yf.Ticker(ticker, session=_yf_session()).news
+        ) or []
     except Exception as exc:
         logger.warning("yfinance news failed for %s: %s", ticker, exc)
         return []

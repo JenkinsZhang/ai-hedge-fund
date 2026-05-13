@@ -17,6 +17,7 @@ class Config:
     sec_edgar_user_agent: str | None
     aws_bearer_token: str | None
     cache_dir: Path
+    proxy: str | None
 
 
 def _default_cache_dir() -> Path:
@@ -31,6 +32,13 @@ def load_config() -> Config:
     bedrock_token = os.getenv("AWS_BEARER_TOKEN_BEDROCK") or None
     cache_override = os.getenv("PROVIDER_CACHE_DIR")
     cache_dir = Path(cache_override) if cache_override else _default_cache_dir()
+    # YFINANCE_PROXY takes priority; fall back to standard HTTPS_PROXY/HTTP_PROXY
+    proxy = (
+        os.getenv("YFINANCE_PROXY")
+        or os.getenv("HTTPS_PROXY")
+        or os.getenv("HTTP_PROXY")
+        or None
+    )
 
     if provider == "yfinance":
         if not sec_ua:
@@ -56,6 +64,7 @@ def load_config() -> Config:
         sec_edgar_user_agent=sec_ua,
         aws_bearer_token=bedrock_token,
         cache_dir=cache_dir,
+        proxy=proxy,
     )
 
 
@@ -67,5 +76,6 @@ def banner(cfg: Config) -> str:
         f"alpha_vantage={'enabled' if cfg.alpha_vantage_api_key else 'missing'}",
         f"sec_edgar={'enabled' if cfg.sec_edgar_user_agent else 'missing'}",
         f"bedrock={'enabled' if cfg.aws_bearer_token else 'missing'}",
+        f"proxy={cfg.proxy or 'direct'}",
     ]
     return f"Using data provider: yfinance  ({', '.join(parts)})"
