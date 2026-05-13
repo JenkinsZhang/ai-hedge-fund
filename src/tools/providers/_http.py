@@ -13,20 +13,13 @@ logger = logging.getLogger(__name__)
 def make_session(default_headers: dict[str, str] | None = None) -> requests.Session:
     """Build a fresh requests Session with optional default headers.
 
-    Honours the `proxy` field on Config (set via YFINANCE_PROXY / HTTPS_PROXY /
-    HTTP_PROXY env). Lazy-imported to avoid a circular import at module load.
+    Proxy support comes from the standard HTTPS_PROXY / HTTP_PROXY env
+    vars, which load_config() ensures are populated. requests honours
+    these automatically — no per-session proxies dict needed.
     """
     session = requests.Session()
     if default_headers:
         session.headers.update(default_headers)
-    try:
-        from src.tools.providers._config import load_config
-        proxy = load_config().proxy
-        if proxy:
-            session.proxies = {"http": proxy, "https": proxy}
-    except Exception:
-        # If config can't load (e.g. during early bootstrap), proceed without proxy.
-        pass
     return session
 
 

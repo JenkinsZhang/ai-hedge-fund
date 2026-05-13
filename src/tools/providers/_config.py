@@ -39,6 +39,13 @@ def load_config() -> Config:
         or os.getenv("HTTP_PROXY")
         or None
     )
+    # Push proxy back into the standard env vars so libraries that don't
+    # accept explicit proxy params (yfinance/curl_cffi internals, etc.)
+    # pick it up transparently. setdefault is idempotent and respects an
+    # already-set HTTPS_PROXY.
+    if proxy:
+        os.environ.setdefault("HTTPS_PROXY", proxy)
+        os.environ.setdefault("HTTP_PROXY", proxy)
 
     if provider == "yfinance":
         if not sec_ua:
