@@ -155,7 +155,7 @@ def search_line_items(
     """Fetch line items from API."""
     if os.getenv("DATA_PROVIDER", "financial_datasets") == "yfinance":
         from src.tools.providers import dispatch
-        return dispatch.fetch_line_items(ticker, end_date, period, limit)
+        return dispatch.fetch_line_items(ticker, line_items, end_date, period, limit)
     # If not in cache or insufficient data, fetch from API
     headers = {}
     financial_api_key = api_key or os.environ.get("FINANCIAL_DATASETS_API_KEY")

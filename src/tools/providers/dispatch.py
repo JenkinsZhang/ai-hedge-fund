@@ -54,16 +54,30 @@ def fetch_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
     return _cached(key, 0, lambda: yfinance_source.fetch_prices(ticker, start_date, end_date)) or []
 
 
-def fetch_line_items(ticker: str, end_date: str, period: str, limit: int) -> list[LineItem]:
+def fetch_line_items(
+    ticker: str,
+    line_items: list[str],
+    end_date: str,
+    period: str,
+    limit: int,
+) -> list[LineItem]:
     _emit_banner_once()
-    key = f"yfinance:line_items:{ticker}::{end_date}:{period}:{limit}:v1"
+    items_key = ",".join(sorted(line_items))
+    key = f"yfinance:line_items:{ticker}:{items_key}:{end_date}:{period}:{limit}:v1"
 
     def _build():
+        from src.tools.providers.yfinance_source import LINE_ITEM_CANDIDATES
         quarters = derived._fetch_pit_quarters(ticker, end_date)
+        # Pre-populate every key the agent asked for + every canonical key we
+        # know, so that LineItem(**payload).<field> never raises AttributeError
+        # even when yfinance didn't expose the value.
+        baseline_keys = set(LINE_ITEM_CANDIDATES) | set(line_items)
         out: list[LineItem] = []
         for q in quarters[:limit]:
+            payload = {k: None for k in baseline_keys}
+            payload.update(q)
             try:
-                out.append(LineItem(**q))
+                out.append(LineItem(**payload))
             except Exception as exc:
                 logger.warning("LineItem validation failed for %s/%s: %s", ticker, q.get("report_period"), exc)
         return out
