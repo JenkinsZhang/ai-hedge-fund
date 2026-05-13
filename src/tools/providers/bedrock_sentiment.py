@@ -13,21 +13,29 @@ from src.data.models import CompanyNews
 
 logger = logging.getLogger(__name__)
 
-# Pick the cross-region inference profile that matches AWS_REGION.
-# Default jp.* for ap-northeast-1 (matches the Bedrock provider's default).
+# Cross-region inference profile IDs vary by region. These are the real
+# IDs Bedrock returns from list_inference_profiles. Verified for ap-northeast-1.
 _HAIKU_MODEL_BY_REGION = {
-    "ap-northeast-1": "jp.anthropic.claude-haiku-4-5",
-    "us-east-1":      "us.anthropic.claude-haiku-4-5",
-    "us-east-2":      "us.anthropic.claude-haiku-4-5",
-    "us-west-2":      "us.anthropic.claude-haiku-4-5",
-    "eu-west-1":      "eu.anthropic.claude-haiku-4-5",
-    "eu-central-1":   "eu.anthropic.claude-haiku-4-5",
+    "ap-northeast-1": "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "ap-northeast-2": "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "ap-northeast-3": "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "us-east-1":      "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "us-east-2":      "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "us-west-2":      "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "eu-west-1":      "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "eu-central-1":   "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
 }
 
 
 def _haiku_model() -> str:
+    """Pick the right Haiku 4.5 inference profile for the configured AWS region.
+
+    Falls back to the global cross-region profile so it works anywhere.
+    """
     region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-northeast-1"
-    return _HAIKU_MODEL_BY_REGION.get(region, "jp.anthropic.claude-haiku-4-5")
+    return _HAIKU_MODEL_BY_REGION.get(
+        region, "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    )
 
 _PROMPT = (
     "Classify each news title's sentiment toward the listed ticker. "
